@@ -1,0 +1,307 @@
+---
+title: |
+  | Forecasting Assignment-Exercise2
+author: "Deborah Kewon"
+date: "April 22, 2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+if (!require("fpp2")) install.packages("fpp2"); library(fpp2)
+if (!require("portes")) install.packages("portes"); library(portes)
+if (!require("readxl")) install.packages("readxl"); library(readxl)
+if (!require("tseries")) install.packages("tseries"); library(tseries)
+if (!require("lmtest")) install.packages("lmtest"); library(lmtest)
+if (!require("forecast")) install.packages("forecast"); library(forecast)
+if (!require("dplyr")) install.packages("dplyr"); library(dplyr)
+options(digits=4, scipen=0)
+```
+
+##Exercise 2
+
+###1. Exploring data
+The data set Energy shows the yearly gross inland consumption of renewable energies (wind power and renewables) in the European Union, in thousand tonnes of oil equivalent (TOE) from 1990 up to 2016
+```{r}
+setwd("C:\\Users\\dkewon\\Desktop\\retake\\final") # read the data
+data <- read_excel("DataSets.xlsx", sheet = "Energy")
+#using renewables
+energy_consum <- ts(data['Renewables'], frequency = 1, start =
+1990) # Split the data into training and test set
+t_train <- window(energy_consum, end=2010)
+t_test <- window(energy_consum, start=2011)
+# Retrieve the length of the test set
+h <- length(t_test)
+# Plot the data
+par(mfrow=c(1,1))
+plot(energy_consum)
+lines(t_train, col="red")
+lines(t_test, col="blue")
+```
+According to the graph above, the time series are not seasonal. The renewable energy consumption has been constantly increasing and exponentially since early 2000's.
+
+###2. Naive Method
+
+As the time series are not seasonal and have constantly increased, we apply the naive method with drift method.
+
+The residual analysis indicates that there is no white noise, which means there is still information we can capture.
+
+```{r}
+fnaive <- rwf(t_train, drift=TRUE, h=length(t_test))	
+checkresiduals(fnaive)
+res <- na.omit(fnaive$residuals)
+LjungBox(res, lags=seq(1,20,4), order=0)
+accuracy(fnaive, t_test)[,c(2,3,5,6)]
+a_n<-accuracy(fnaive, t_test)[,c(2,3,5,6)]
+a_train_n<-a_n[1,]
+a_test_n <-a_n[2,]
+plot(energy_consum,main="Energy Consumption", ylab="",xlab="Year")
+lines(fnaive$mean, col=4)
+legend("topleft",lty=1, col=c(4), legend = c("Naive"))
+```
+
+We notice that the accuracy is better for the training dataset (except MAPE). We are going to compare these results with other models later on.
+
+
+###3. Exponential Smoothing Methods. 
+The renewable energy consumption has a positive trend and has constantly increased. For this reason, we choose the holt exponential smoothing method (damped).
+
+Even though there is white noise, this model has the worse results than the previous model in terms of accuracy metrics especially for the testing dataset. 
+```{r}
+fit <- holt(t_train, exponential = TRUE, damped = TRUE,length(t_test))
+
+plot(fit,ylab="Renewable Energy Consumption",
+      shadecols = "white",
+      type="o", fcol="white", xlab="Year")
+ lines(fitted(fit), col="green", lty=2)
+ lines(fit$mean, type="o", col="green")
+ par_col <- c("black", "green", "green")
+ legend("topleft",lty=1, pch=1, col=par_col,
+      c("data","Holt Exponential"),cex = 0.75)
+
+fcast<-forecast(fit, length(t_test))
+plot(fcast)
+# Residual
+checkresiduals(fcast)
+res <- na.omit(fcast$residuals)
+LjungBox(res, lags=seq(1,20,4), order=1)
+# Accuracy
+print ("Accuracy")
+accuracy(fit,t_test)[,c(2,3,5,6)]  # test set
+a_h <- accuracy(fit,t_test)[,c(2,3,5,6)]
+a_train_h <- a_h[1,]
+a_test_h <- a_h[2,]
+
+```
+
+###4.ETS. 
+
+We test three ETS models such as ANN,MAN and MAdN for no seasonal time series and one auto
+ETS model(AAN).
+
+The best fitting model is ETS(ANN) as it shows the lowest AIC.
+
+In terms of residual analysis,there is white noise for all the models except model ANN.
+
+Considering the accuracy metrics, we choose the ETS(MAdN) model as a best model given the lowest
+RMSE and MASE in the testing dataset.
+```{r}
+fit1<-ets(t_train,model = "ANN")
+fit2<-ets(t_train,model = "MAN")
+fit3<-ets(t_train,model = "MAN", damped = TRUE)
+fit4<-ets(t_train) 
+fcast1<-forecast(fit1,h=length(t_test))
+fcast2<-forecast(fit2,h=length(t_test))
+fcast3<-forecast(fit3,h=length(t_test))
+fcast4<-forecast(fit4,h=length(t_test))
+plot(fcast1)
+plot(fcast2)
+plot(fcast3)
+plot(fcast4)
+# Residual
+checkresiduals(fcast1)
+checkresiduals(fcast2)
+checkresiduals(fcast3)
+checkresiduals(fcast4)
+# AIC
+test1<- ets(t_test,fit1,use.initial.values = TRUE)  # test set
+test2<- ets(t_test,fit2,use.initial.values = TRUE) 
+test3<- ets(t_test,fit3,use.initial.values = TRUE)
+test4<- ets(t_test,fit4,use.initial.values = TRUE)
+print(" AIC | AICc | BIC ")
+round(c(test1$aic,test1$aicc,test1$bic),4)
+round(c(test2$aic,test2$aicc,test2$bic),4)
+round(c(test3$aic,test3$aicc,test3$bic),4)
+round(c(test4$aic,test4$aicc,test4$bic),4)
+
+# Accuracy
+round(accuracy(fcast1,t_test)[,c(2,3,5,6)],4)
+round(accuracy(fcast2,t_test)[,c(2,3,5,6)],4)
+round(accuracy(fcast3,t_test)[,c(2,3,5,6)],4)
+round(accuracy(fcast4,t_test)[,c(2,3,5,6)],4)
+a_e3<-accuracy(fcast3,t_test)[,c(2,3,5,6)]
+a_train_e3<-a_e3[1,]
+a_test_e3<-a_e3[2,]
+```
+
+###5.ARIMA.
+There is white noise; no information is left with the auto arima model Arima(1,2,1).We start by differencing
+the data; two differences are suggested
+
+```{r}
+ndiffs(t_train)
+m0 <- auto.arima(t_train)
+checkresiduals(m0)
+tsdisplay(m0$residuals)
+```
+
+Using the getinfo() function, we are going to compute more Arima models with 2 differences Arima(i,2,j).
+```{r}
+getinfo <- function(x,h,...) {
+  train.end <- time(x)[length(x)-h]
+  test.start <- time(x)[length(x)-h+1]
+  train <- window(x,end=train.end)
+  test <- window(x,start=test.start)
+  fit <- Arima(train,...)
+  fc <- forecast(fit,h=h)
+  a <- accuracy(fc,test)
+  result <- matrix(NA, nrow=1, ncol=5)
+  result[1,1] <- fit$aicc
+  result[1,2] <- a[1,6]
+  result[1,3] <- a[2,6]
+  result[1,4] <- a[1,2]
+  result[1,5] <- a[2,2]
+  return(result)
+}
+
+```
+
+```{r}
+mat <- matrix(NA,nrow=72, ncol=5)
+modelnames <- vector(mode="character", length=72)
+line <- 0
+for (p in 1:6){
+  for (q in 1:6){
+    for (d in 1:2){
+        line <- line+1
+        mat[line,] <- getinfo(energy_consum,h=h,order=c(p,d,q), method="ML")
+        modelnames[line] <- paste0("ARIMA(",p,",",d,",",q,")")
+    }
+  }
+}
+colnames(mat) <- c("AICc", "MASE_train", "MASE_test", "RMSE_train", "RMSE_test")
+rownames(mat) <- modelnames
+```
+
+Then, we select the best models in terms of AICc, MASE and RMSE respectively. After that, we will compute each model separately more in detail. 
+
+```{r}
+print("best AICc")
+which(mat[,1]==min(mat[,1]))
+
+print("best MASE_train")
+which(mat[,2]==min(mat[,2]))
+
+print("best MASE_test")
+which(mat[,3]==min(mat[,3]))
+
+print("best RMSE_train")
+which(mat[,4]==min(mat[,4]))
+
+print("best RMSE_test")
+which(mat[,5]==min(mat[,5]))
+```
+
+Computing Auto Arima model: Arima(1,2,2)  
+
+```{r}
+m0<-Arima(t_train,order=c(1,2,2),method = 'ML')
+coef(m0)
+LjungBox(m0$residuals, lags=seq(length(m0$coef),20,4), order=length(m0$coef))
+tsdisplay(m0$residuals)
+f0 <- forecast(m0, h=length(t_test))
+```
+
+Computing ARIMA(5,2,4)  
+
+```{r}
+m1<-Arima(t_train,order=c(5,2,4))
+coef(m1)
+LjungBox(m1$residuals, lags=seq(length(m1$coef),20,4), order=length(m1$coef))
+tsdisplay(m1$residuals)
+f1 <- forecast(m1, h=length(t_test))
+```
+ 
+Computing ARIMA(3,1,1)  
+ 
+```{r}
+m2 <- Arima(t_train, order=c(3,1,1), method = 'ML')
+tsdisplay(m2$residuals)
+f2 <- forecast(m2, h=length(t_test))
+```
+
+Computing ARIMA(6,2,6)  
+ 
+```{r}
+m3 <- Arima(t_train, order=c(6,2,6))
+coeftest(m3)
+LjungBox(m3$residuals, lags=seq(length(m3$coef),20,4), order=length(m3$coef))
+tsdisplay(m3$residuals)
+f3 <- forecast(m3, h=length(t_test))
+```
+
+```{r}
+
+a_m0 <- accuracy(f0,t_test)[,c(2,3,5,6)]
+a_m1 <- accuracy(f1,t_test)[,c(2,3,5,6)]
+a_m2 <- accuracy(f2,t_test)[,c(2,3,5,6)]
+a_m3 <- accuracy(f3,t_test)[,c(2,3,5,6)]
+
+print("Accuracy for train")
+a_train_a <- rbind(a_m0[1,], a_m1[1,], a_m2[1,],a_m3[1,])
+rownames(a_train_a) <- c("a_m0", "a_m1", "a_m2","a_m3")
+a_train_a
+print("Accuracy for test")
+a_test_a <- rbind(a_m0[2,], a_m1[2,], a_m2[2,],a_m3[2,])
+rownames(a_test_a) <- c("a_m0", "a_m1", "a_m2","a_m3")
+a_test_a
+```
+
+Arima model ARIMA(1,2,2) has the best AICc index-best fitting model
+Considering the residual analysis, all the Arima models computed perform well.
+In terms of accuracy, model m2 = ARIMA(3,1,1) has the best performance in the test dataset.
+Therefore, we choose m2 = ARIMA(3,1,1) as a best model.
+
+###6. Selection of final model   
+
+In terms of AIC and residual analysis, the best model is ARIMA(3,1,1)- time series fit very well
+However, considering the accuracy index on the trainset, naive method (random walk with drift) has the best performance. As a result, we choose the naive model as a best model.
+
+```{r}
+print("Accuracy - Train ")
+final_train <- rbind(a_train_n, a_train_h, a_train_e3, a_train_a[3,])
+rownames(final_train) <- c("naive", "holt", "ETS(MAdN)", "ARIMA(3,1,1)")
+final_train
+print("Accuracy - Test ")
+final_test <- rbind(a_test_n,  a_test_h,  a_test_e3, a_test_a[3,])
+rownames(final_test) <- c("naive", "holt", "ETS(MAdN)", "ARIMA(3,1,1)")
+final_test
+```
+
+## Forecast up to 2020
+
+The naive (random walk with drift) model is corresponding to the trend.
+
+```{r}
+model<-rwf(energy_consum, drift=TRUE, h=length(t_test))
+summary(model)
+plot(forecast(model, h=3))
+```
+

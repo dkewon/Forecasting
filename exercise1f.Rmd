@@ -1,0 +1,482 @@
+---
+title: |
+  | Forecasting Assignment-Exercise1
+author: "Deborah Kewon"
+date: "April 22, 2019"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+The provided dataset contains the monthly number of road fatalities in Belgium from January 1995 to December 2017.The objective is to forecast the number of road fatalities in Belgium (up to December 2020) using various time-series methods such as snaive, stl, ets and arima. 
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+
+if (!require("fpp2")) install.packages("fpp2"); library(fpp2)
+if (!require("portes")) install.packages("portes"); library(portes)
+if (!require("readxl")) install.packages("readxl"); library(readxl)
+if (!require("tseries")) install.packages("tseries"); library(tseries)
+if (!require("lmtest")) install.packages("lmtest"); library(lmtest)
+if (!require("forecast")) install.packages("forecast"); library(forecast)
+if (!require("dplyr")) install.packages("dplyr"); library(dplyr)
+options(digits=4, scipen=0)
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#importing data
+setwd("C:\\Users\\dkewon\\Desktop\\retake\\final")
+# read the data
+library(readxl)
+data <- read_excel("DataSets.xlsx", sheet = "Fatalities_m")
+#turning data into time series
+rsv <- ts(data[,2], frequency = 12, start = c(1995,1))
+# Split the data in training and test set
+rsv1 <- window(rsv, start=c(2001,1), end=c(2015,12))
+rsv2 <- window(rsv, start=c(2016,1), end=c(2017,12))
+# Retrieve the length of the test set
+h <- length(rsv2)
+```
+
+
+
+# 1. Exploring Data
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+
+# Plot the data
+#plotting data to capture seasonal properties
+par("mar") #5.1 4.1 4.1 2.1 ## [1] 5.1 4.1 4.1 2.1
+par(mar=c(2.5,2.5,2.5,2.5)) #adjusting margin not to get an error message on large margin
+plot(rsv)
+lines(rsv1, col="red")
+lines(rsv2, col="blue") # moderate trend and high seasonality
+
+# looking further into seasonality using season and month plots
+par(mfrow=c(1,2))
+seasonplot(rsv, year.labels=TRUE, year.labels.left=TRUE,
+           main="Seasonal plot",
+           ylab="The number of road fatalities",col=rainbow(20), pch=19)
+monthplot(rsv, main="Month plot", ylab = "The number of road fatalities",
+          xlab="Month", type="l")
+```
+I first split the dataset into trainset (January 2001-December 2015) and testset(January 2016-December 2017) and then looked further into seasonality and trend using season and month plots.Moderate (decreasing) trend and seasonality exist.
+
+
+# 2. Seasonal Naive Method
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+n <- snaive(rsv1, h=h) # seasonal naive
+a_n <- accuracy(n,rsv2)[,c(2,3,5,6)]
+a_train_n <- a_n[1,]
+a_train_n
+
+a_test_n <- a_n[2,]
+a_test_n
+
+par(mfrow=c(1,1))
+plot(rsv,main="Road Fatalities", ylab="",xlab="Month")
+lines(n$mean,col=4)
+legend("topleft",lty=1,col=c(4),legend=c("Seasonsal naive"))
+
+res <- residuals(n)
+checkresiduals(n)
+
+res <- na.omit(res)
+LjungBox(res, lags=seq(1,24,4), order=0)
+```
+The error terms for seasonal naive method are as above. In order to see which method is better in forecasting, we have to compare the error terms of this model with the error terms of other models.
+
+According to the graph above, the number of fatalities obtained from the seasonal naive method are a bit higher than the actual numbers. It is hard to tell how well this method is performing. We may check the quality of residuals.
+
+According to the Auto Correlation Function plot for residuals, there is no white noise, which means there is still information in the residual part. We may find the way to capture this information.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+par(mfrow=c(1,1))
+n_final <- snaive(rsv, h=24)
+plot(n_final)
+```
+When forecasting on the complete dataset using the seaonal naive, the output looks like this.
+
+# 3. STL Decomposition
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+d <- stl(rsv1[,1], t.window=15, s.window=13)
+rsvadj <- seasadj(d)
+
+f_d <- forecast(d, method="rwdrift", h=h)
+plot(f_d)
+
+# In the graph below, 
+# we plot the various elements that make up the final forecast.
+par(mfrow=c(1,1))
+plot(rwf(rsvadj, drift=TRUE, h=h), col="red")
+lines(rsv, col="black")
+lines(f_d$mean, col="green")
+legend("topleft", lty=1, col=c("black", "red", "blue", "green"),
+       legend=c("Time series","Seasonally adjusted series",
+                "Seasonally adjusted forecast", "Final forecast"))
+
+# We check the accuracy of the forecasts based on a decomposition.
+a_d <- accuracy(f_d,rsv2)[,c(2,3,5,6)]
+a_train_d <- a_d[1,]
+a_train_d
+
+a_test_d <- a_d[2,]
+a_test_d
+
+# We also check the residuals for the STL method.
+checkresiduals(f_d)
+
+res <- na.omit(f_d$residuals)
+LjungBox(res, lags=seq(1,24,4), order=1)
+```
+STL (Seasonal decomposition of Time series by Loess) plot decomposes the time series into seasonal, trend and irregular components.The graph above is the result of STL and random walk with draft.
+
+Since the seasonally adjusted forecast does not contain any sesonality components, the line is straight.The final forecast is a bit higher than the actual time series.
+
+The accuracy of this model is better than that of seasonal naive method in terms of RMSE,MAPE and MASE (in the test dataset).
+
+According to ACF, there is no white noise. Further improvements on the forecast model may be needed.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+d_final <- stl(rsv[,1], t.window=15, s.window=13)
+rsvadj <- seasadj(d_final)
+f_d_final <- forecast(d_final, method="rwdrift", h=24)
+plot(f_d_final)
+```
+
+When you apply the STL model on the whole dataset, the output looks like this.
+
+# 4. Holt_Winter seasonal method
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+fit1 <- hw(rsv1,seasonal="additive",h=h)
+fit2 <- hw(rsv1,seasonal="multiplicative",h=h)
+fit3 <- hw(rsv1,seasonal="multiplicative", damped=TRUE,h=h)
+fit4 <- hw(rsv1,seasonal="multiplicative",exponential=TRUE, damped=TRUE,h=h)
+
+plot(fit2,ylab="Turnover index",
+     shadecols = "white",
+     type="o", fcol="white", xlab="Year")
+lines(fitted(fit1), col="red", lty=2)
+lines(fitted(fit2), col="green", lty=2)
+lines(fitted(fit3), col="blue", lty=2)
+lines(fitted(fit4), col="orange", lty=2)
+lines(fit1$mean, type="o",  col="red")
+lines(fit2$mean, type="o",  col="green")
+lines(fit3$mean, type="o",  col="blue")
+lines(fit4$mean, type="o",  col="orange")
+legend("topleft",lty=1, pch=1, col=1:5,
+       c("data",
+         "Holt Winters Additive",
+         "Holt Winters Multiplicative",
+         "Holt Winters Multiplicative damped",
+         "Holt Winters Multiplicative exponential damped"))
+
+# check acc with own train set
+a_fc1 <- accuracy(fit1)[,c(2,3,5,6)]
+a_fc2 <- accuracy(fit2)[,c(2,3,5,6)]
+a_fc3 <- accuracy(fit3)[,c(2,3,5,6)]
+a_fc4 <- accuracy(fit4)[,c(2,3,5,6)]
+
+acc <- rbind(a_fc1, a_fc2, a_fc3, a_fc4)
+rownames(acc) <- c("a_fc1", "a_fc2", "a_fc3", "a_fc4")
+acc
+
+# check acc with test set
+a_fc1 <- accuracy(fit1, rsv2)[,c(2,3,5,6)]
+a_fc2 <- accuracy(fit2, rsv2)[,c(2,3,5,6)]
+a_fc3 <- accuracy(fit3, rsv2)[,c(2,3,5,6)]
+a_fc4 <- accuracy(fit4, rsv2)[,c(2,3,5,6)]
+
+acc <- rbind(a_fc1, a_fc2, a_fc3, a_fc4)
+acc
+
+
+fit <- rbind(fit1$model$aic, fit2$model$aic, fit3$model$aic, fit4$model$aic)
+colnames(fit) <- c("AIC")
+rownames(fit) <- c("a_fc1", "a_fc2", "a_fc3", "a_fc4")
+fit
+
+
+checkresiduals(fit2)
+
+res <- na.omit(f_d$residuals)
+LjungBox(res, lags=seq(1,24,4), order=1)
+```
+In terms of model fit (AIC) and accuracy metrics (RMSE,MAE,MAPE, MASE) for the test set, a_fc1 (Holt Winters' additive method) performs the best. 
+
+These residuals still show remaining autocorrelation. The forecast on the complete data set based on this method looks this:
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+h_final <-  hw(rsv[,1],seasonal="multiplicative")
+f_h_final <- forecast(h_final,seasonal="multiplicative", h=24)
+plot(f_h_final)
+```
+
+# 5. ETS
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Models without damping (excluding possibly unstable models)
+e1 <- ets(rsv1, model="AAA")
+e2 <- ets(rsv1, model="MAA")
+e3 <- ets(rsv1, model="MAM")
+e4 <- ets(rsv1, model="MMM")
+#Models with damping (excluding possibly unstable models)
+e5 <- ets(rsv1, model="AAA", damped=TRUE)
+e6 <- ets(rsv1, model="MAA", damped=TRUE)
+e7 <- ets(rsv1, model="MAM", damped=TRUE)
+e8 <- ets(rsv1, model="MMM", damped=TRUE)
+
+#AICc as a model fit criteria and Error terms for accuracy criteria
+
+
+m <- c("AAA", "MAA", "MAM", "MMM")
+result <- matrix(data=NA, nrow=4, ncol=9)
+for (i in 1:4){
+  model <- ets(rsv1, model=m[i], damped=FALSE)
+  f <- forecast(model, h=length(rsv2))
+  a <- accuracy(f, rsv2)
+  result[i,1] <- model$aicc
+  result[i,2] <- a[1,2]
+  result[i,3] <- a[1,3]
+  result[i,4] <- a[1,5]
+  result[i,5] <- a[1,6]
+  result[i,6] <- a[2,2]
+  result[i,7] <- a[2,3]
+  result[i,8] <- a[2,5]
+  result[i,9] <- a[2,6]
+}
+rownames(result) <- m
+result[,1] # Compare AICc values
+
+a_train_e1 <- result[,2:5]
+colnames(a_train_e1) <- c("RMSE", "MAE", "MAPE", "MASE")
+a_train_e1
+
+a_test_e1 <- result[,6:9]
+colnames(a_test_e1) <- c("RMSE", "MAE", "MAPE", "MASE")
+a_test_e1
+
+
+# same procedure for the damped models
+
+
+m <- c("AAA", "MAA", "MAM", "MMM")
+result <- matrix(data=NA, nrow=4, ncol=9)
+for (i in 1:4){
+  model <- ets(rsv1, model=m[i], damped=TRUE)
+  f <- forecast(model, h=length(rsv2))
+  a <- accuracy(f, rsv2)
+  result[i,1] <- model$aicc
+  result[i,2] <- a[1,2]
+  result[i,3] <- a[1,3]
+  result[i,4] <- a[1,5]
+  result[i,5] <- a[1,6]
+  result[i,6] <- a[2,2]
+  result[i,7] <- a[2,3]
+  result[i,8] <- a[2,5]
+  result[i,9] <- a[2,6]
+}
+rownames(result) <- c("AAdA", "MAdA", "MAdM", "MMdM")
+result[,1] # Compare AICc values
+ 
+a_train_e2 <- result[,2:5]
+colnames(a_train_e2) <- c("RMSE", "MAE", "MAPE", "MASE")
+a_train_e2
+
+a_test_e2 <- result[,6:9]
+colnames(a_test_e2) <- c("RMSE", "MAE", "MAPE", "MASE")
+a_test_e2
+
+# The damped models have higher error terms than non-damped ones in all cases. Therefore, we will use non-damped models
+
+
+summary(e4)
+
+# We check the properties of the residuals for this model.
+checkresiduals(e4)
+
+res <- na.omit(e4$residuals)
+LjungBox(res, lags = seq(length(e4$par),24,4), order=length(e4$par))
+
+# For these residuals, we do reject the null hypothesis of white noise. 
+# We compare the results with those of the automated ETS procedure.
+
+auto_ets <- ets(rsv1)
+auto_ets$method
+
+f <- forecast(auto_ets, h=length(rsv2))
+accuracy(f, rsv2)[,c(2,6)]
+
+checkresiduals(auto_ets)
+# The MAM model from auto ets is not a good performing model in terms of accuracy
+```
+The ETS model without damping is performed.MMM performs the best for the testset in terms of RMSE,MAE,MAPE and MASE even though there is no white noise.
+
+Damped models have higher error terms in all cases. As a result, I select non-damped MMM
+model based on the accuracy metrics.
+ 
+MAM model from auto ETS does not perform well in terms of accuracy metrics.
+Therefore,as I mentioned earlier, my final choice is the MMM model (e4) despite that residuals of this model do not perform well. 
+
+We will apply this model to the complete data set.
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+e4 <- ets(rsv1, model="MMM",damped = FALSE)
+f_e4 <- forecast(e4, h=length(rsv2))
+a_e4 <- accuracy(f_e4,rsv2)[,c(2,3,5,6)]
+
+e_final <- ets(rsv[,1], model = "MMM",damped = FALSE)
+e_final_f <- forecast(e_final, h=24)
+plot(e_final_f)
+```
+
+# 6. ARIMA
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+tsdisplay(rsv1, main="road fatalities", ylab="the number of fatalities", xlab="Year") #ACF shows  'nonstationary', which is caused by seasonality.
+ndiffs(rsv1)
+nsdiffs(diff(rsv1))
+
+tsdisplay(diff(diff(rsv1,12)), main="Double differenced fatalities",
+          ylab="the number of fatalities", xlab="Year")
+#As this dataset includes seasonal components, I used ndiffs to estimate the number of differences required to make the given time series stationary-1 difference.
+
+
+# define function
+getinfo <- function(x,h,...){
+  train.end <- time(x)[length(x)-h]
+  test.start <- time(x)[length(x)-h+1]
+  train <- window(x,end=train.end)
+  test <- window(x,start=test.start)
+  fit <- Arima(train,...)
+  fc <- forecast(fit,h=h)
+  a <- accuracy(fc,test)
+  result <- matrix(NA, nrow=1, ncol=5)
+  result[1,1] <- fit$aicc
+  result[1,2] <- a[1,6]
+  result[1,3] <- a[2,6]
+  result[1,4] <- a[1,2]
+  result[1,5] <- a[2,2]
+  return(result)
+}
+
+# for loop to save it as matrix
+mat <- matrix(NA,nrow=54, ncol=5)
+modelnames <- vector(mode="character", length=54)
+line <- 0
+for (i in 2:4){
+  for (j in 0:2){
+    for (k in 0:1){
+      for (l in 0:2){
+        line <- line+1
+        mat[line,] <- getinfo(rsv,h=h,order=c(i,1,j),seasonal=c(k,1,l))
+        modelnames[line] <- paste0("ARIMA(",i,",1,",j,")(",k,",1,",l,")[12]")
+      }
+    }
+  }
+}
+
+colnames(mat) <- c("AICc", "MASE_train", "MASE_test", "RMSE_train", "RMSE_test")
+rownames(mat) <- modelnames
+
+#save as a dataframe
+mat_df = as.data.frame(mat)
+mat_df['modelnames']=modelnames
+
+# we will mainly focus on AICc and MASE/ RMSE on test set
+
+# best AICc
+mat_df[mat_df['AICc']==min(mat_df['AICc'])]
+
+# best MASE_train
+mat_df[mat_df['MASE_train']==min(mat_df['MASE_train'])]
+
+# best RMSE_test
+mat_df[mat_df['RMSE_test']==min(mat_df['RMSE_test'])]
+
+# proceed with the auto.arima procedure
+m0 <- auto.arima(rsv1, stepwise = FALSE, approximation = FALSE, d=1, D=1)
+m0
+
+checkresiduals(m0)
+
+tsdisplay(m0$residuals)
+LjungBox(m0$residuals, lags=seq(length(m0$coef),24,4), order=length(m0$coef))
+
+f0 <- forecast(m0, h=h)
+accuracy(f0,rsv2)[,c(2,3,5,6)]
+```
+Based on these results, we select 3 models
+1. m0: ARIMA(0,1,1)(2,1,1)[12] is the model selected by auto.arima. 
+2. m1: ARIMA(4,1,2)(0,1,1)[12] shows the best AICc.
+3. m2: ARIMA(3,1,2)(0,1,1)[12] It has the lowest error terms for the test set.We now study these
+selected models in more detail.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+m1 <- Arima(rsv1, order=c(4,1,2), seasonal=c(0,1,1))
+coeftest(m1)
+
+LjungBox(m1$residuals, lags=seq(length(m1$coef),24,4), order=length(m1$coef))
+
+tsdisplay(m1$residuals)
+f1 <- forecast(m1, h=h)
+
+m2 <- Arima(rsv1, order=c(3,1,2), seasonal=c(0,1,1))
+coeftest(m2)
+
+LjungBox(m2$residuals, lags=seq(length(m2$coef),24,4), order=length(m2$coef))
+
+tsdisplay(m2$residuals)
+f2 <- forecast(m2, h=h)
+
+#relevant accuracy measures.
+a_m0 <- accuracy(f0,rsv2)[,c(2,3,5,6)]
+a_m1 <- accuracy(f1,rsv2)[,c(2,3,5,6)]
+a_m2 <- accuracy(f2,rsv2)[,c(2,3,5,6)]
+
+a_train_a <- rbind(a_m0[1,], a_m1[1,], a_m2[1,])
+rownames(a_train_a) <- c("a_m0", "a_m1", "a_m2")
+a_train_a
+
+a_test_a <- rbind(a_m0[2,], a_m1[2,], a_m2[2,])
+rownames(a_test_a) <- c("a_m0", "a_m1", "a_m2")
+a_test_a
+```
+We observe that the requirements of white noise residuals are  fulfilled in m1. However, a_m0 from auto arima performs the best in terms of accuracy metrics. Therefore I select m0: ARIMA(0,1,1)(2,1,1)[12] as a final model.
+
+# 7. Model Comparison & Sample Forecast up to December 2020
+In this section, we compare the performance of the selected models: seasonal naive, the
+STL decomposition, the Holt-Winters method, the ets procedure and ARIMA. 
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+final_train <- rbind(a_train_n, a_train_d, a_fc2[1,], a_e4[1,], a_m0[1,])
+rownames(final_train) <- c("snaive", "decompose",
+                           "Holt-Winters", "ETS(M,M,M) ","ARIMA(0,1,1)(2,1,1)[12]")
+final_train
+
+final_test <- rbind(a_test_n, a_test_d, a_fc2[2,], a_e4[2,], a_m0[2,])
+rownames(final_test) <- c("snaive", "decompose","Holt-Winters",
+                          "ETS(M,M,M) ", "ARIMA(0,1,1)(2,1,1)[12]")
+final_test
+```
+We observe that the Holt-Winters performs best on the training set in terms of MAE,MAPE and MASE. 
+However, on the test set, the best forecast accuracy is the ARIMA(0,1,1)(2,1,1)[12].
+
+The residual diagnostics were not satisfactory for both models, we reject the null hypothesis of white noise residuals 
+
+Therefore, I chose m0:ARIMA(0,1,1)(2,1,1)[12] as a final model for generating the forecasts up to 2020.
+
+
+We select ARIMA(0,1,1)(2,1,1)[12] as the final model for generating the forecasts up to December 2020 (See below)
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+
+e_final_f <- forecast(m0, h=60)
+plot(e_final_f)
+
+```
+
+
